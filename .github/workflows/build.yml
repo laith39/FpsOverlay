@@ -43,8 +43,8 @@ jobs:
                   applicationId = "com.laith.fpsoverlay"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 5
-                  versionName = "1.4"
+                  versionCode = 6
+                  versionName = "1.5"
               }
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
@@ -286,7 +286,7 @@ jobs:
                   try {
                       val rootProcess = Runtime.getRuntime().exec(arrayOf("su", "-c", "id"))
                       if (rootProcess.waitFor() == 0) {
-                        Toast.makeText(this, "تم اكتشاف صلاحيات الروت بنجاح!", Toast.LENGTH_SHORT).show()
+                          Toast.makeText(this, "تم اكتشاف صلاحيات الروت بنجاح!", Toast.LENGTH_SHORT).show()
                           refreshStatus()
                           return
                       }
@@ -632,7 +632,7 @@ jobs:
                   }
               }
 
-              override onDestroy() {
+              override fun onDestroy() {
                   running = false
                   prefs.unregisterOnSharedPreferenceChangeListener(listener)
                   panel?.let { try { wm.removeView(it) } catch (e: Exception) {} }
