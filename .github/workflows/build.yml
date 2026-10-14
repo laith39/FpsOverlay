@@ -43,8 +43,8 @@ jobs:
                   applicationId = "com.laith.fpsoverlay"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 3
-                  versionName = "1.2"
+                  versionCode = 4
+                  versionName = "1.3"
               }
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
@@ -96,10 +96,13 @@ jobs:
           import android.app.Activity
           import android.content.Intent
           import android.content.pm.PackageManager
+          import android.graphics.Color
+          import android.graphics.drawable.GradientDrawable
           import android.net.Uri
           import android.os.Build
           import android.os.Bundle
           import android.provider.Settings
+          import android.view.Gravity
           import android.widget.Button
           import android.widget.LinearLayout
           import android.widget.ScrollView
@@ -111,103 +114,153 @@ jobs:
 
           class MainActivity : Activity() {
               private val tools = listOf(
-                  "FPS" to "FPS - الفريمات",
-                  "RAM" to "RAM - الذاكرة",
-                  "BAT" to "BAT - نسبة البطارية",
-                  "TMP" to "TMP - حرارة البطارية",
-                  "CPU" to "CPU - حرارة المعالج",
-                  "GPU" to "GPU - حرارة الرسوميات"
+                  "FPS" to "معدل الإطارات (FPS)",
+                  "RAM" to "استهلاك الذاكرة (RAM)",
+                  "BAT" to "نسبة البطارية",
+                  "TMP" to "حرارة البطارية",
+                  "CPU" to "حرارة المعالج (CPU)",
+                  "GPU" to "حرارة الرسوميات (GPU)"
               )
-              private lateinit var status: TextView
+              private lateinit var statusText: TextView
 
               override fun onCreate(s: Bundle?) {
                   super.onCreate(s)
                   val prefs = getSharedPreferences("p", MODE_PRIVATE)
+                  window.decorView.setBackgroundColor(Color.parseColor("#0B0F19"))
+
                   val root = LinearLayout(this).apply {
                       orientation = LinearLayout.VERTICAL
-                      setPadding(48, 100, 48, 48)
+                      setPadding(40, 60, 40, 60)
                   }
-                  status = TextView(this).apply {
-                      textSize = 15f
-                      setPadding(0, 0, 0, 24)
-                  }
-                  root.addView(status)
-                  root.addView(Button(this).apply {
-                      text = "تشغيل القياسات"
-                      setOnClickListener { startOverlay() }
-                  })
-                  root.addView(Button(this).apply {
-                      text = "إيقاف"
-                      setOnClickListener {
-                          stopService(Intent(this@MainActivity, OverlayService::class.java))
+
+                  val headerCard = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(40, 40, 40, 40)
+                      background = GradientDrawable().apply {
+                          setColor(Color.parseColor("#151C2C"))
+                          cornerRadius = 24f
+                          setStroke(2, Color.parseColor("#1E293B"))
                       }
-                  })
-                  root.addView(Button(this).apply {
-                      text = "إذن Shizuku"
-                      setOnClickListener { askShizuku() }
-                  })
+                  }
+
+                  val title = TextView(this).apply {
+                      text = "⚡ FPS Overlay"
+                      textSize = 22f
+                      setTextColor(Color.parseColor("#FFFFFF"))
+                      setTypeface(null, android.graphics.Typeface.BOLD)
+                  }
+                  headerCard.addView(title)
+
+                  statusText = TextView(this).apply {
+                      textSize = 13f
+                      setPadding(0, 16, 0, 0)
+                      setTextColor(Color.parseColor("#94A3B8"))
+                  }
+                  headerCard.addView(statusText)
+                  root.addView(headerCard)
+
+                  root.addView(View(this), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 30))
+
+                  val btnStart = createStyledButton("تشغيل القياسات العائمة", "#FF5A1F", Color.WHITE) { startOverlay() }
+                  val btnStop = createStyledButton("إيقاف الشريط", "#1E293B", Color.parseColor("#CBD5E1")) {
+                      stopService(Intent(this@MainActivity, OverlayService::class.java))
+                      Toast.makeText(this, "تم إيقاف الخدمة", Toast.LENGTH_SHORT).show()
+                  }
+                  val btnShizuku = createStyledButton("منح إذن Shizuku / فحص الروت", "#1E293B", Color.parseColor("#38BDF8")) { askShizuku() }
+
+                  root.addView(btnStart)
+                  root.addView(View(this), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 16))
+                  root.addView(btnStop)
+                  root.addView(View(this), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 16))
+                  root.addView(btnShizuku)
+
+                  root.addView(View(this), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 40))
+                  val settingsTitle = TextView(this).apply {
+                      text = "تخصيص العناصر الظاهرة"
+                      textSize = 15f
+                      setTextColor(Color.parseColor("#38BDF8"))
+                      setTypeface(null, android.graphics.Typeface.BOLD)
+                  }
+                  root.addView(settingsTitle)
+                  root.addView(View(this), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 16))
 
                   for ((key, label) in tools) {
-                      root.addView(Switch(this).apply {
+                      val sw = Switch(this).apply {
                           text = label
-                          textSize = 16f
-                          setPadding(0, 24, 0, 24)
+                          textSize = 15f
+                          setTextColor(Color.parseColor("#E2E8F0"))
                           isChecked = prefs.getBoolean(key, true)
                           setOnCheckedChangeListener { _, c ->
                               prefs.edit().putBoolean(key, c).apply()
                           }
-                      })
+                          setPadding(10, 16, 10, 16)
+                      }
+                      root.addView(sw)
                   }
 
-                  root.addView(Switch(this).apply {
-                      text = "عرض أفقي (بدل عمودي)"
-                      textSize = 16f
-                      setPadding(0, 24, 0, 24)
+                  root.addView(View(this), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 30))
+                  
+                  val swHoriz = Switch(this).apply {
+                      text = "عرض الشريط بشكل أفقي"
+                      textSize = 15f
+                      setTextColor(Color.parseColor("#E2E8F0"))
                       isChecked = prefs.getBoolean("horizontal", false)
-                      setOnCheckedChangeListener { _, c ->
-                          prefs.edit().putBoolean("horizontal", c).apply()
-                      }
-                  })
-                  root.addView(Switch(this).apply {
-                      text = "فتح القفل لتحريك الشريط بإصبعك"
-                      textSize = 16f
-                      setPadding(0, 24, 0, 24)
+                      setOnCheckedChangeListener { _, c -> prefs.edit().putBoolean("horizontal", c).apply() }
+                      setPadding(10, 16, 10, 16)
+                  }
+                  root.addView(swHoriz)
+
+                  val swLock = Switch(this).apply {
+                      text = "إلغاء قفل التحريك (لتحريك الشريط بإصبعك)"
+                      textSize = 15f
+                      setTextColor(Color.parseColor("#E2E8F0"))
                       isChecked = !prefs.getBoolean("locked", true)
-                      setOnCheckedChangeListener { _, c ->
-                          prefs.edit().putBoolean("locked", !c).apply()
-                      }
-                  })
+                      setOnCheckedChangeListener { _, c -> prefs.edit().putBoolean("locked", !c).apply() }
+                      setPadding(10, 16, 10, 16)
+                  }
+                  root.addView(swLock)
 
                   val sizeLabel = TextView(this).apply {
-                      textSize = 16f
-                      setPadding(0, 24, 0, 0)
-                      text = "الحجم: " + prefs.getInt("scale", 100) + "%"
+                      textSize = 14f
+                      setPadding(10, 24, 10, 8)
+                      setTextColor(Color.parseColor("#94A3B8"))
+                      text = "حجم الشريط: " + prefs.getInt("scale", 100) + "%"
                   }
                   root.addView(sizeLabel)
-                  root.addView(SeekBar(this).apply {
-                      max = 150
+
+                  val seekBar = SeekBar(this).apply {
+                      max = 100
                       progress = prefs.getInt("scale", 100) - 50
                       setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                           override fun onProgressChanged(sb: SeekBar?, p: Int, fromUser: Boolean) {
                               val v = p + 50
-                              sizeLabel.text = "الحجم: " + v + "%"
+                              sizeLabel.text = "حجم الشريط: $v%"
                               prefs.edit().putInt("scale", v).apply()
                           }
                           override fun onStartTrackingTouch(sb: SeekBar?) {}
                           override fun onStopTrackingTouch(sb: SeekBar?) {}
                       })
-                  })
-
-                  root.addView(Button(this).apply {
-                      text = "إعادة الشريط لمكانه الأول"
-                      setOnClickListener {
-                          prefs.edit().putInt("x", 20).putInt("y", 80).apply()
-                      }
-                  })
+                  }
+                  root.addView(seekBar)
 
                   setContentView(ScrollView(this).apply { addView(root) })
                   if (Build.VERSION.SDK_INT >= 33) {
                       requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
+                  }
+              }
+
+              private fun createStyledButton(txt: String, bgColor: String, textColor: Int, onClick: () -> Unit): Button {
+                  return Button(this).apply {
+                      text = txt
+                      setTextColor(textColor)
+                      textSize = 15f
+                      isAllCaps = false
+                      background = GradientDrawable().apply {
+                          setColor(Color.parseColor(bgColor))
+                          cornerRadius = 16f
+                      }
+                      setOnClickListener { onClick() }
+                      setPadding(24, 28, 24, 28)
                   }
               }
 
@@ -217,42 +270,48 @@ jobs:
               }
 
               private fun refreshStatus() {
-                  status.text = try {
-                      if (!Shizuku.pingBinder()) "Shizuku: غير مشغّل (شغّله من تطبيق Shizuku)"
-                      else if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED)
-                          "Shizuku: يعمل والإذن ممنوح ✅"
-                      else "Shizuku: يعمل لكن اضغط (إذن Shizuku)"
+                  statusText.text = try {
+                      val hasRoot = Runtime.getRuntime().exec(arrayOf("su", "-c", "id")).waitFor() == 0
+                      if (hasRoot) "الحالة: متصل عبر صلاحيات الروت (Root) ✅"
+                      else if (Shizuku.pingBinder() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED)
+                          "الحالة: يعمل عبر Shizuku ✅"
+                      else "الحالة: يرجى منح إذن Shizuku أو الروت ⚠️"
                   } catch (e: Throwable) {
-                      "Shizuku: غير متاح"
+                      "الحالة: تعذّر التحقق من الصلاحيات"
                   }
               }
 
               private fun askShizuku() {
                   try {
+                      val rootProcess = Runtime.getRuntime().exec(arrayOf("su", "-c", "id"))
+                      if (rootProcess.waitFor() == 0) {
+                          Toast.makeText(this, "تم اكتشاف صلاحيات الروت بنجاح!", Toast.LENGTH_SHORT).show()
+                          refreshStatus()
+                          return
+                      }
+                  } catch (e: Throwable) {}
+
+                  try {
                       if (!Shizuku.pingBinder()) {
-                          Toast.makeText(this, "شغّل Shizuku أولًا", Toast.LENGTH_LONG).show()
+                          Toast.makeText(this, "شغّل تطبيق Shizuku أولاً", Toast.LENGTH_LONG).show()
                       } else if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
                           Shizuku.requestPermission(100)
                       } else {
-                          Toast.makeText(this, "الإذن ممنوح", Toast.LENGTH_SHORT).show()
+                          Toast.makeText(this, "إذن Shizuku ممنوح مسبقاً", Toast.LENGTH_SHORT).show()
                       }
                   } catch (e: Throwable) {
-                      Toast.makeText(this, "تعذّر الاتصال بـ Shizuku", Toast.LENGTH_LONG).show()
+                      Toast.makeText(this, "خطأ في الاتصال بـ Shizuku", Toast.LENGTH_LONG).show()
                   }
                   refreshStatus()
               }
 
               private fun startOverlay() {
                   if (!Settings.canDrawOverlays(this)) {
-                      startActivity(
-                          Intent(
-                              Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                              Uri.parse("package:$packageName")
-                          )
-                      )
+                      startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
                       return
                   }
                   startForegroundService(Intent(this, OverlayService::class.java))
+                  Toast.makeText(this, "تم بدء تشغيل الشريط العائم", Toast.LENGTH_SHORT).show()
               }
           }
           EOF
@@ -308,32 +367,29 @@ jobs:
                   "CPU" to "#A855F7",
                   "GPU" to "#EAB308"
               )
-              private val listener =
-                  SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> applyPrefs() }
+              private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> applyPrefs() }
 
               override fun onBind(i: Intent?): IBinder? = null
               override fun onStartCommand(i: Intent?, f: Int, id: Int) = START_STICKY
 
-              private fun d(v: Float): Int =
-                  maxOf(1, (v * resources.displayMetrics.density).toInt())
+              private fun d(v: Float): Int = maxOf(1, (v * resources.displayMetrics.density).toInt())
 
               override fun onCreate() {
                   super.onCreate()
                   prefs = getSharedPreferences("p", MODE_PRIVATE)
                   val nm = getSystemService(NotificationManager::class.java)
-                  nm.createNotificationChannel(
-                      NotificationChannel("ov", "Overlay", NotificationManager.IMPORTANCE_LOW)
-                  )
+                  nm.createNotificationChannel(NotificationChannel("ov", "Overlay", NotificationManager.IMPORTANCE_LOW))
                   val n = Notification.Builder(this, "ov")
-                      .setContentTitle("FPS Overlay يعمل")
+                      .setContentTitle("FPS Overlay يعمل في الخلفية")
                       .setSmallIcon(android.R.drawable.ic_menu_info_details)
                       .build()
                   startForeground(1, n)
 
                   wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
                   val bg = GradientDrawable().apply {
-                      setColor(Color.parseColor("#CC0B1226"))
-                      cornerRadius = d(8f).toFloat()
+                      setColor(Color.parseColor("#E60B1226"))
+                      cornerRadius = d(10f).toFloat()
+                      setStroke(1, Color.parseColor("#334155"))
                   }
                   val p = LinearLayout(this).apply { background = bg }
                   panel = p
@@ -349,26 +405,16 @@ jobs:
                   lp.y = prefs.getInt("y", 80)
 
                   p.setOnTouchListener(object : View.OnTouchListener {
-                      var sx = 0f
-                      var sy = 0f
-                      var ox = 0
-                      var oy = 0
+                      var sx = 0f; var sy = 0f; var ox = 0; var oy = 0
                       override fun onTouch(v: View, e: MotionEvent): Boolean {
                           when (e.action) {
-                              MotionEvent.ACTION_DOWN -> {
-                                  sx = e.rawX
-                                  sy = e.rawY
-                                  ox = lp.x
-                                  oy = lp.y
-                              }
+                              MotionEvent.ACTION_DOWN -> { sx = e.rawX; sy = e.rawY; ox = lp.x; oy = lp.y }
                               MotionEvent.ACTION_MOVE -> {
                                   lp.x = ox + (e.rawX - sx).toInt()
                                   lp.y = oy + (e.rawY - sy).toInt()
-                                  try { wm.updateViewLayout(v, lp) } catch (ex: Exception) { }
+                                  try { wm.updateViewLayout(v, lp) } catch (ex: Exception) {}
                               }
-                              MotionEvent.ACTION_UP -> {
-                                  prefs.edit().putInt("x", lp.x).putInt("y", lp.y).apply()
-                              }
+                              MotionEvent.ACTION_UP -> { prefs.edit().putInt("x", lp.x).putInt("y", lp.y).apply() }
                           }
                           return true
                       }
@@ -384,23 +430,18 @@ jobs:
                   h.post {
                       val p = panel
                       if (p != null) {
-                          val key = prefs.getBoolean("horizontal", false).toString() +
-                              prefs.getInt("scale", 100)
+                          val key = prefs.getBoolean("horizontal", false).toString() + prefs.getInt("scale", 100)
                           if (key != builtKey) {
                               builtKey = key
                               build(p)
                           }
                           val locked = prefs.getBoolean("locked", true)
-                          lp.flags = if (locked)
-                              WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                                  WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                          lp.flags = if (locked) WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                           else WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                           lp.x = prefs.getInt("x", 20)
                           lp.y = prefs.getInt("y", 80)
-                          (p.background as GradientDrawable).setStroke(
-                              if (locked) 0 else d(2f), Color.WHITE
-                          )
-                          try { wm.updateViewLayout(p, lp) } catch (ex: Exception) { }
+                          (p.background as GradientDrawable).setStroke(if (locked) d(1f) else d(2f), if (locked) Color.parseColor("#334155") else Color.parseColor("#38BDF8"))
+                          try { wm.updateViewLayout(p, lp) } catch (ex: Exception) {}
                           update()
                       }
                   }
@@ -413,39 +454,33 @@ jobs:
                   values.clear()
                   rows.clear()
                   p.orientation = if (horizontal) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
-                  p.setPadding(d(10f * s), d(6f * s), d(10f * s), d(6f * s))
+                  p.setPadding(d(12f * s), d(8f * s), d(12f * s), d(8f * s))
                   for ((key, color) in defs) {
                       val row = LinearLayout(this).apply {
                           orientation = LinearLayout.HORIZONTAL
                           gravity = Gravity.CENTER_VERTICAL
                       }
-                      row.addView(
-                          View(this).apply { setBackgroundColor(Color.parseColor(color)) },
-                          LinearLayout.LayoutParams(d(5f * s), d(34f * s))
-                      )
+                      row.addView(View(this).apply { setBackgroundColor(Color.parseColor(color)) }, LinearLayout.LayoutParams(d(5f * s), d(36f * s)))
                       val col = LinearLayout(this).apply {
                           orientation = LinearLayout.VERTICAL
                           setPadding(d(8f * s), 0, 0, 0)
                       }
                       col.addView(TextView(this).apply {
                           text = key
-                          textSize = 8f * s
+                          textSize = 9f * s
                           typeface = Typeface.MONOSPACE
-                          setTextColor(Color.parseColor("#9AA4C0"))
+                          setTextColor(Color.parseColor("#94A3B8"))
                       })
                       val v = TextView(this).apply {
                           text = "--"
-                          textSize = 17f * s
+                          textSize = 16f * s
                           typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
                           setTextColor(Color.WHITE)
                       }
                       col.addView(v)
                       row.addView(col)
-                      val rlp = LinearLayout.LayoutParams(
-                          LinearLayout.LayoutParams.WRAP_CONTENT,
-                          LinearLayout.LayoutParams.WRAP_CONTENT
-                      )
-                      if (horizontal) rlp.setMargins(0, 0, d(12f * s), 0)
+                      val rlp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                      if (horizontal) rlp.setMargins(0, 0, d(14f * s), 0)
                       else rlp.setMargins(0, d(4f * s), 0, d(4f * s))
                       p.addView(row, rlp)
                       values[key] = v
@@ -453,25 +488,27 @@ jobs:
                   }
               }
 
-              private fun shizukuOk(): Boolean = try {
-                  Shizuku.pingBinder() &&
-                      Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
-              } catch (e: Throwable) { false }
-
               private fun sh(cmd: String): String {
-                  return try {
-                      val pr = Shizuku.newProcess(arrayOf("sh", "-c", cmd), null, null)
+                  try {
+                      val pr = Runtime.getRuntime().exec(arrayOf("su", "-c", cmd))
                       val out = pr.inputStream.bufferedReader().readText()
                       pr.waitFor()
-                      out
-                  } catch (e: Throwable) { "" }
+                      if (out.isNotBlank()) return out
+                  } catch (e: Throwable) {}
+
+                  try {
+                      if (Shizuku.pingBinder() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
+                          val pr = Shizuku.newProcess(arrayOf("sh", "-c", cmd), null, null)
+                          val out = pr.inputStream.bufferedReader().readText()
+                          pr.waitFor()
+                          return out
+                      }
+                  } catch (e: Throwable) {}
+                  return ""
               }
 
               private fun readTemps() {
-                  val out = sh(
-                      "grep . /sys/class/thermal/thermal_zone*/type " +
-                          "/sys/class/thermal/thermal_zone*/temp 2>/dev/null"
-                  )
+                  val out = sh("grep . /sys/class/thermal/thermal_zone*/type /sys/class/thermal/thermal_zone*/temp 2>/dev/null")
                   val types = HashMap<String, String>()
                   val temps = HashMap<String, Float>()
                   for (line in out.lines()) {
@@ -488,21 +525,17 @@ jobs:
                           if (c in 1f..150f) temps[zone] = c
                       }
                   }
-                  var cpu = -1f
-                  var cpuFallback = -1f
-                  var gpu = -1f
+                  var cpu = -1f; var gpu = -1f; var generalMax = -1f
                   for ((zone, type) in types) {
                       val t = temps[zone] ?: continue
-                      if (type.contains("gpu")) {
+                      if (t > generalMax) generalMax = t
+                      if (type.contains("gpu") || type.contains("g3d") || type.contains("mali") || type.contains("adreno")) {
                           if (t > gpu) gpu = t
-                      } else if (type.contains("cpu")) {
+                      } else if (type.contains("cpu") || type.contains("core") || type.contains("cluster") || type.contains("soc") || type.contains("mtk") || type.contains("tsens")) {
                           if (t > cpu) cpu = t
-                      } else if (type.contains("soc") || type.contains("tsens") ||
-                          type.contains("mtk")) {
-                          if (t > cpuFallback) cpuFallback = t
                       }
                   }
-                  if (cpu < 0f) cpu = cpuFallback
+                  if (cpu < 0f) cpu = generalMax
                   cpuT = if (cpu > 0f) cpu.toInt().toString() else "--"
                   gpuT = if (gpu > 0f) gpu.toInt().toString() else "--"
               }
@@ -538,18 +571,12 @@ jobs:
                   var focus = sh("dumpsys window 2>/dev/null | grep -m1 mCurrentFocus")
                   var m = Regex("([A-Za-z0-9_.]+)/").find(focus)
                   if (m == null) {
-                      focus = sh(
-                          "dumpsys activity activities 2>/dev/null | " +
-                              "grep -m1 -E 'mResumedActivity|topResumedActivity'"
-                      )
+                      focus = sh("dumpsys activity activities 2>/dev/null | grep -m1 -E 'mResumedActivity|topResumedActivity'")
                       m = Regex("([A-Za-z0-9_.]+)/").find(focus)
                   }
                   val pkg = m?.groupValues?.get(1) ?: return "--"
                   val list = sh("dumpsys SurfaceFlinger --list 2>/dev/null").lines()
-                      .filter {
-                          it.contains(pkg) && !it.startsWith("Background") &&
-                              !it.startsWith("Bounds") && !it.contains("Task=")
-                      }
+                      .filter { it.contains(pkg) && !it.startsWith("Background") && !it.startsWith("Bounds") && !it.contains("Task=") }
                       .sortedByDescending { it.contains("SurfaceView") }
                       .take(4)
                   if (list.isEmpty()) return "--"
@@ -567,17 +594,15 @@ jobs:
                   thread(isDaemon = true) {
                       while (running) {
                           val t0 = System.currentTimeMillis()
-                          if (shizukuOk()) {
-                              try { fpsT = readFps() } catch (e: Throwable) { fpsT = "--" }
-                              try { readTemps() } catch (e: Throwable) { }
-                          } else {
+                          try {
+                              fpsT = readFps()
+                              readTemps()
+                          } catch (e: Throwable) {
                               fpsT = "--"
-                              cpuT = "--"
-                              gpuT = "--"
                           }
                           h.post { update() }
                           val dt = System.currentTimeMillis() - t0
-                          try { Thread.sleep(maxOf(0L, 1000L - dt)) } catch (e: Exception) { }
+                          try { Thread.sleep(maxOf(0L, 1000L - dt)) } catch (e: Exception) {}
                       }
                   }
               }
@@ -609,9 +634,7 @@ jobs:
               override fun onDestroy() {
                   running = false
                   prefs.unregisterOnSharedPreferenceChangeListener(listener)
-                  panel?.let {
-                      try { wm.removeView(it) } catch (e: Exception) { }
-                  }
+                  panel?.let { try { wm.removeView(it) } catch (e: Exception) {} }
                   panel = null
                   super.onDestroy()
               }
