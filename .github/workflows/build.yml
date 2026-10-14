@@ -43,14 +43,18 @@ jobs:
                   applicationId = "com.laith.fpsoverlay"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 2
-                  versionName = "1.1"
+                  versionCode = 3
+                  versionName = "1.2"
               }
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
                   targetCompatibility = JavaVersion.VERSION_17
               }
               kotlinOptions { jvmTarget = "17" }
+          }
+          dependencies {
+              implementation("dev.rikka.shizuku:api:12.2.0")
+              implementation("dev.rikka.shizuku:provider:12.2.0")
           }
           EOF
           cat > app/src/main/AndroidManifest.xml <<'EOF'
@@ -76,6 +80,13 @@ jobs:
                           android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                           android:value="overlay"/>
                   </service>
+                  <provider
+                      android:name="rikka.shizuku.ShizukuProvider"
+                      android:authorities="${applicationId}.shizuku"
+                      android:multiprocess="false"
+                      android:enabled="true"
+                      android:exported="true"
+                      android:permission="android.permission.INTERACT_ACROSS_USERS_FULL"/>
               </application>
           </manifest>
           EOF
@@ -84,6 +95,7 @@ jobs:
 
           import android.app.Activity
           import android.content.Intent
+          import android.content.pm.PackageManager
           import android.net.Uri
           import android.os.Build
           import android.os.Bundle
@@ -91,7 +103,11 @@ jobs:
           import android.widget.Button
           import android.widget.LinearLayout
           import android.widget.ScrollView
+          import android.widget.SeekBar
           import android.widget.Switch
+          import android.widget.TextView
+          import android.widget.Toast
+          import rikka.shizuku.Shizuku
 
           class MainActivity : Activity() {
               private val tools = listOf(
@@ -102,14 +118,20 @@ jobs:
                   "CPU" to "CPU - حرارة المعالج",
                   "GPU" to "GPU - حرارة الرسوميات"
               )
+              private lateinit var status: TextView
 
               override fun onCreate(s: Bundle?) {
                   super.onCreate(s)
                   val prefs = getSharedPreferences("p", MODE_PRIVATE)
                   val root = LinearLayout(this).apply {
                       orientation = LinearLayout.VERTICAL
-                      setPadding(48, 120, 48, 48)
+                      setPadding(48, 100, 48, 48)
                   }
+                  status = TextView(this).apply {
+                      textSize = 15f
+                      setPadding(0, 0, 0, 24)
+                  }
+                  root.addView(status)
                   root.addView(Button(this).apply {
                       text = "تشغيل القياسات"
                       setOnClickListener { startOverlay() }
@@ -120,21 +142,104 @@ jobs:
                           stopService(Intent(this@MainActivity, OverlayService::class.java))
                       }
                   })
+                  root.addView(Button(this).apply {
+                      text = "إذن Shizuku"
+                      setOnClickListener { askShizuku() }
+                  })
+
                   for ((key, label) in tools) {
                       root.addView(Switch(this).apply {
                           text = label
                           textSize = 16f
-                          setPadding(0, 28, 0, 28)
+                          setPadding(0, 24, 0, 24)
                           isChecked = prefs.getBoolean(key, true)
                           setOnCheckedChangeListener { _, c ->
                               prefs.edit().putBoolean(key, c).apply()
                           }
                       })
                   }
+
+                  root.addView(Switch(this).apply {
+                      text = "عرض أفقي (بدل عمودي)"
+                      textSize = 16f
+                      setPadding(0, 24, 0, 24)
+                      isChecked = prefs.getBoolean("horizontal", false)
+                      setOnCheckedChangeListener { _, c ->
+                          prefs.edit().putBoolean("horizontal", c).apply()
+                      }
+                  })
+                  root.addView(Switch(this).apply {
+                      text = "فتح القفل لتحريك الشريط بإصبعك"
+                      textSize = 16f
+                      setPadding(0, 24, 0, 24)
+                      isChecked = !prefs.getBoolean("locked", true)
+                      setOnCheckedChangeListener { _, c ->
+                          prefs.edit().putBoolean("locked", !c).apply()
+                      }
+                  })
+
+                  val sizeLabel = TextView(this).apply {
+                      textSize = 16f
+                      setPadding(0, 24, 0, 0)
+                      text = "الحجم: " + prefs.getInt("scale", 100) + "%"
+                  }
+                  root.addView(sizeLabel)
+                  root.addView(SeekBar(this).apply {
+                      max = 150
+                      progress = prefs.getInt("scale", 100) - 50
+                      setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                          override fun onProgressChanged(sb: SeekBar?, p: Int, fromUser: Boolean) {
+                              val v = p + 50
+                              sizeLabel.text = "الحجم: " + v + "%"
+                              prefs.edit().putInt("scale", v).apply()
+                          }
+                          override fun onStartTrackingTouch(sb: SeekBar?) {}
+                          override fun onStopTrackingTouch(sb: SeekBar?) {}
+                      })
+                  })
+
+                  root.addView(Button(this).apply {
+                      text = "إعادة الشريط لمكانه الأول"
+                      setOnClickListener {
+                          prefs.edit().putInt("x", 20).putInt("y", 80).apply()
+                      }
+                  })
+
                   setContentView(ScrollView(this).apply { addView(root) })
                   if (Build.VERSION.SDK_INT >= 33) {
                       requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
                   }
+              }
+
+              override fun onResume() {
+                  super.onResume()
+                  refreshStatus()
+              }
+
+              private fun refreshStatus() {
+                  status.text = try {
+                      if (!Shizuku.pingBinder()) "Shizuku: غير مشغّل (شغّله من تطبيق Shizuku)"
+                      else if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED)
+                          "Shizuku: يعمل والإذن ممنوح ✅"
+                      else "Shizuku: يعمل لكن اضغط (إذن Shizuku)"
+                  } catch (e: Throwable) {
+                      "Shizuku: غير متاح"
+                  }
+              }
+
+              private fun askShizuku() {
+                  try {
+                      if (!Shizuku.pingBinder()) {
+                          Toast.makeText(this, "شغّل Shizuku أولًا", Toast.LENGTH_LONG).show()
+                      } else if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
+                          Shizuku.requestPermission(100)
+                      } else {
+                          Toast.makeText(this, "الإذن ممنوح", Toast.LENGTH_SHORT).show()
+                      }
+                  } catch (e: Throwable) {
+                      Toast.makeText(this, "تعذّر الاتصال بـ Shizuku", Toast.LENGTH_LONG).show()
+                  }
+                  refreshStatus()
               }
 
               private fun startOverlay() {
@@ -154,10 +259,16 @@ jobs:
           cat > app/src/main/java/com/laith/fpsoverlay/OverlayService.kt <<'EOF'
           package com.laith.fpsoverlay
 
-          import android.app.*
+          import android.app.ActivityManager
+          import android.app.Notification
+          import android.app.NotificationChannel
+          import android.app.NotificationManager
+          import android.app.Service
           import android.content.Context
           import android.content.Intent
           import android.content.IntentFilter
+          import android.content.SharedPreferences
+          import android.content.pm.PackageManager
           import android.graphics.Color
           import android.graphics.PixelFormat
           import android.graphics.Typeface
@@ -167,17 +278,28 @@ jobs:
           import android.os.IBinder
           import android.os.Looper
           import android.view.Gravity
+          import android.view.MotionEvent
           import android.view.View
           import android.view.WindowManager
           import android.widget.LinearLayout
           import android.widget.TextView
-          import java.io.File
+          import rikka.shizuku.Shizuku
+          import kotlin.concurrent.thread
 
           class OverlayService : Service() {
               private lateinit var wm: WindowManager
+              private lateinit var prefs: SharedPreferences
+              private lateinit var lp: WindowManager.LayoutParams
               private var panel: LinearLayout? = null
               private val h = Handler(Looper.getMainLooper())
-              private val rows = LinkedHashMap<String, Pair<LinearLayout, TextView>>()
+              private val values = HashMap<String, TextView>()
+              private val rows = HashMap<String, View>()
+              private var builtKey = ""
+              @Volatile private var running = true
+              @Volatile private var fpsT = "--"
+              @Volatile private var cpuT = "--"
+              @Volatile private var gpuT = "--"
+              private var fpsLayer = ""
               private val defs = listOf(
                   "FPS" to "#FF5A1F",
                   "RAM" to "#3B5BFF",
@@ -186,17 +308,18 @@ jobs:
                   "CPU" to "#A855F7",
                   "GPU" to "#EAB308"
               )
-              private val tick = object : Runnable {
-                  override fun run() { update(); h.postDelayed(this, 1000) }
-              }
+              private val listener =
+                  SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> applyPrefs() }
 
               override fun onBind(i: Intent?): IBinder? = null
               override fun onStartCommand(i: Intent?, f: Int, id: Int) = START_STICKY
 
-              private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+              private fun d(v: Float): Int =
+                  maxOf(1, (v * resources.displayMetrics.density).toInt())
 
               override fun onCreate() {
                   super.onCreate()
+                  prefs = getSharedPreferences("p", MODE_PRIVATE)
                   val nm = getSystemService(NotificationManager::class.java)
                   nm.createNotificationChannel(
                       NotificationChannel("ov", "Overlay", NotificationManager.IMPORTANCE_LOW)
@@ -208,103 +331,288 @@ jobs:
                   startForeground(1, n)
 
                   wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-                  panel = LinearLayout(this).apply {
-                      orientation = LinearLayout.VERTICAL
-                      setPadding(dp(10), dp(8), dp(12), dp(8))
-                      background = GradientDrawable().apply {
-                          setColor(Color.parseColor("#CC0B1226"))
-                          cornerRadius = dp(8).toFloat()
+                  val bg = GradientDrawable().apply {
+                      setColor(Color.parseColor("#CC0B1226"))
+                      cornerRadius = d(8f).toFloat()
+                  }
+                  val p = LinearLayout(this).apply { background = bg }
+                  panel = p
+                  lp = WindowManager.LayoutParams(
+                      WindowManager.LayoutParams.WRAP_CONTENT,
+                      WindowManager.LayoutParams.WRAP_CONTENT,
+                      WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                      PixelFormat.TRANSLUCENT
+                  )
+                  lp.gravity = Gravity.TOP or Gravity.START
+                  lp.x = prefs.getInt("x", 20)
+                  lp.y = prefs.getInt("y", 80)
+
+                  p.setOnTouchListener(object : View.OnTouchListener {
+                      var sx = 0f
+                      var sy = 0f
+                      var ox = 0
+                      var oy = 0
+                      override fun onTouch(v: View, e: MotionEvent): Boolean {
+                          when (e.action) {
+                              MotionEvent.ACTION_DOWN -> {
+                                  sx = e.rawX
+                                  sy = e.rawY
+                                  ox = lp.x
+                                  oy = lp.y
+                              }
+                              MotionEvent.ACTION_MOVE -> {
+                                  lp.x = ox + (e.rawX - sx).toInt()
+                                  lp.y = oy + (e.rawY - sy).toInt()
+                                  try { wm.updateViewLayout(v, lp) } catch (ex: Exception) { }
+                              }
+                              MotionEvent.ACTION_UP -> {
+                                  prefs.edit().putInt("x", lp.x).putInt("y", lp.y).apply()
+                              }
+                          }
+                          return true
+                      }
+                  })
+
+                  wm.addView(p, lp)
+                  prefs.registerOnSharedPreferenceChangeListener(listener)
+                  applyPrefs()
+                  startWorker()
+              }
+
+              private fun applyPrefs() {
+                  h.post {
+                      val p = panel
+                      if (p != null) {
+                          val key = prefs.getBoolean("horizontal", false).toString() +
+                              prefs.getInt("scale", 100)
+                          if (key != builtKey) {
+                              builtKey = key
+                              build(p)
+                          }
+                          val locked = prefs.getBoolean("locked", true)
+                          lp.flags = if (locked)
+                              WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                                  WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                          else WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                          lp.x = prefs.getInt("x", 20)
+                          lp.y = prefs.getInt("y", 80)
+                          (p.background as GradientDrawable).setStroke(
+                              if (locked) 0 else d(2f), Color.WHITE
+                          )
+                          try { wm.updateViewLayout(p, lp) } catch (ex: Exception) { }
+                          update()
                       }
                   }
+              }
+
+              private fun build(p: LinearLayout) {
+                  val horizontal = prefs.getBoolean("horizontal", false)
+                  val s = prefs.getInt("scale", 100) / 100f
+                  p.removeAllViews()
+                  values.clear()
+                  rows.clear()
+                  p.orientation = if (horizontal) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+                  p.setPadding(d(10f * s), d(6f * s), d(10f * s), d(6f * s))
                   for ((key, color) in defs) {
                       val row = LinearLayout(this).apply {
                           orientation = LinearLayout.HORIZONTAL
                           gravity = Gravity.CENTER_VERTICAL
-                          setPadding(0, dp(4), 0, dp(4))
                       }
-                      val bar = View(this).apply {
-                          setBackgroundColor(Color.parseColor(color))
-                      }
-                      row.addView(bar, LinearLayout.LayoutParams(dp(5), dp(34)))
+                      row.addView(
+                          View(this).apply { setBackgroundColor(Color.parseColor(color)) },
+                          LinearLayout.LayoutParams(d(5f * s), d(34f * s))
+                      )
                       val col = LinearLayout(this).apply {
                           orientation = LinearLayout.VERTICAL
-                          setPadding(dp(8), 0, 0, 0)
+                          setPadding(d(8f * s), 0, 0, 0)
                       }
                       col.addView(TextView(this).apply {
                           text = key
-                          textSize = 8f
+                          textSize = 8f * s
                           typeface = Typeface.MONOSPACE
                           setTextColor(Color.parseColor("#9AA4C0"))
                       })
-                      val value = TextView(this).apply {
+                      val v = TextView(this).apply {
                           text = "--"
-                          textSize = 17f
+                          textSize = 17f * s
                           typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
                           setTextColor(Color.WHITE)
                       }
-                      col.addView(value)
+                      col.addView(v)
                       row.addView(col)
-                      panel!!.addView(row)
-                      rows[key] = Pair(row, value)
+                      val rlp = LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.WRAP_CONTENT,
+                          LinearLayout.LayoutParams.WRAP_CONTENT
+                      )
+                      if (horizontal) rlp.setMargins(0, 0, d(12f * s), 0)
+                      else rlp.setMargins(0, d(4f * s), 0, d(4f * s))
+                      p.addView(row, rlp)
+                      values[key] = v
+                      rows[key] = row
                   }
-                  val lp = WindowManager.LayoutParams(
-                      WindowManager.LayoutParams.WRAP_CONTENT,
-                      WindowManager.LayoutParams.WRAP_CONTENT,
-                      WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                          WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
-                      PixelFormat.TRANSLUCENT
-                  )
-                  lp.gravity = Gravity.TOP or Gravity.START
-                  lp.x = 20
-                  lp.y = 80
-                  wm.addView(panel, lp)
-                  h.post(tick)
               }
 
-              private fun zoneTemp(keys: List<String>): String {
-                  val dirs = File("/sys/class/thermal").listFiles() ?: return "--"
-                  for (d in dirs) {
-                      if (!d.name.startsWith("thermal_zone")) continue
-                      try {
-                          val type = File(d, "type").readText().trim().lowercase()
-                          if (keys.any { type.contains(it) }) {
-                              val v = File(d, "temp").readText().trim().toFloat()
-                              val c = if (v > 1000f) v / 1000f else v
-                              return c.toInt().toString()
-                          }
-                      } catch (e: Exception) { }
+              private fun shizukuOk(): Boolean = try {
+                  Shizuku.pingBinder() &&
+                      Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+              } catch (e: Throwable) { false }
+
+              private fun sh(cmd: String): String {
+                  return try {
+                      val pr = Shizuku.newProcess(arrayOf("sh", "-c", cmd), null, null)
+                      val out = pr.inputStream.bufferedReader().readText()
+                      pr.waitFor()
+                      out
+                  } catch (e: Throwable) { "" }
+              }
+
+              private fun readTemps() {
+                  val out = sh(
+                      "grep . /sys/class/thermal/thermal_zone*/type " +
+                          "/sys/class/thermal/thermal_zone*/temp 2>/dev/null"
+                  )
+                  val types = HashMap<String, String>()
+                  val temps = HashMap<String, Float>()
+                  for (line in out.lines()) {
+                      val idx = line.indexOf(':')
+                      if (idx < 0) continue
+                      val path = line.substring(0, idx)
+                      val content = line.substring(idx + 1).trim()
+                      val zone = path.substringAfterLast("thermal_zone").substringBefore("/")
+                      if (path.endsWith("/type")) {
+                          types[zone] = content.lowercase()
+                      } else if (path.endsWith("/temp")) {
+                          val raw = content.toFloatOrNull() ?: continue
+                          val c = if (raw > 1000f) raw / 1000f else raw
+                          if (c in 1f..150f) temps[zone] = c
+                      }
                   }
-                  return "--"
+                  var cpu = -1f
+                  var cpuFallback = -1f
+                  var gpu = -1f
+                  for ((zone, type) in types) {
+                      val t = temps[zone] ?: continue
+                      if (type.contains("gpu")) {
+                          if (t > gpu) gpu = t
+                      } else if (type.contains("cpu")) {
+                          if (t > cpu) cpu = t
+                      } else if (type.contains("soc") || type.contains("tsens") ||
+                          type.contains("mtk")) {
+                          if (t > cpuFallback) cpuFallback = t
+                      }
+                  }
+                  if (cpu < 0f) cpu = cpuFallback
+                  cpuT = if (cpu > 0f) cpu.toInt().toString() else "--"
+                  gpuT = if (gpu > 0f) gpu.toInt().toString() else "--"
+              }
+
+              private fun layerFps(layer: String): Int {
+                  val q = layer.replace("'", "'\\''")
+                  val out = sh("dumpsys SurfaceFlinger --latency '$q' 2>/dev/null")
+                  val ts = ArrayList<Long>()
+                  val lines = out.lines()
+                  for (i in 1 until lines.size) {
+                      val parts = lines[i].trim().split(Regex("\\s+"))
+                      if (parts.size < 3) continue
+                      val t = parts[1].toLongOrNull() ?: continue
+                      if (t > 0L && t < 4_000_000_000_000_000_000L) ts.add(t)
+                  }
+                  if (ts.isEmpty()) return -1
+                  val newest = ts.max()
+                  if (System.nanoTime() - newest > 2_000_000_000L) return 0
+                  val win = ts.filter { it > newest - 1_000_000_000L }
+                  if (win.size < 2) return win.size
+                  val span = (win.max() - win.min()).toDouble()
+                  if (span <= 0.0) return win.size
+                  val f = Math.round((win.size - 1) * 1e9 / span).toInt()
+                  return minOf(f, 240)
+              }
+
+              private fun readFps(): String {
+                  if (fpsLayer.isNotEmpty()) {
+                      val f = layerFps(fpsLayer)
+                      if (f > 0) return f.toString()
+                  }
+                  fpsLayer = ""
+                  var focus = sh("dumpsys window 2>/dev/null | grep -m1 mCurrentFocus")
+                  var m = Regex("([A-Za-z0-9_.]+)/").find(focus)
+                  if (m == null) {
+                      focus = sh(
+                          "dumpsys activity activities 2>/dev/null | " +
+                              "grep -m1 -E 'mResumedActivity|topResumedActivity'"
+                      )
+                      m = Regex("([A-Za-z0-9_.]+)/").find(focus)
+                  }
+                  val pkg = m?.groupValues?.get(1) ?: return "--"
+                  val list = sh("dumpsys SurfaceFlinger --list 2>/dev/null").lines()
+                      .filter {
+                          it.contains(pkg) && !it.startsWith("Background") &&
+                              !it.startsWith("Bounds") && !it.contains("Task=")
+                      }
+                      .sortedByDescending { it.contains("SurfaceView") }
+                      .take(4)
+                  if (list.isEmpty()) return "--"
+                  for (l in list) {
+                      val f = layerFps(l)
+                      if (f > 0) {
+                          fpsLayer = l
+                          return f.toString()
+                      }
+                  }
+                  return "0"
+              }
+
+              private fun startWorker() {
+                  thread(isDaemon = true) {
+                      while (running) {
+                          val t0 = System.currentTimeMillis()
+                          if (shizukuOk()) {
+                              try { fpsT = readFps() } catch (e: Throwable) { fpsT = "--" }
+                              try { readTemps() } catch (e: Throwable) { }
+                          } else {
+                              fpsT = "--"
+                              cpuT = "--"
+                              gpuT = "--"
+                          }
+                          h.post { update() }
+                          val dt = System.currentTimeMillis() - t0
+                          try { Thread.sleep(maxOf(0L, 1000L - dt)) } catch (e: Exception) { }
+                      }
+                  }
               }
 
               private fun update() {
-                  val prefs = getSharedPreferences("p", MODE_PRIVATE)
+                  if (panel == null) return
                   val b = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
                   val t = (b?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) ?: 0) / 10
                   val lvl = b?.getIntExtra(BatteryManager.EXTRA_LEVEL, 0) ?: 0
                   val mi = ActivityManager.MemoryInfo()
                   getSystemService(ActivityManager::class.java).getMemoryInfo(mi)
                   val ramPct = ((mi.totalMem - mi.availMem) * 100 / mi.totalMem).toInt()
-                  for ((key, pair) in rows) {
+                  for ((key, v) in values) {
                       val on = prefs.getBoolean(key, true)
-                      pair.first.visibility = if (on) View.VISIBLE else View.GONE
+                      rows[key]?.visibility = if (on) View.VISIBLE else View.GONE
                       if (!on) continue
-                      pair.second.text = when (key) {
-                          "FPS" -> "--"
+                      v.text = when (key) {
+                          "FPS" -> fpsT
                           "RAM" -> ramPct.toString()
                           "BAT" -> lvl.toString()
                           "TMP" -> t.toString()
-                          "CPU" -> zoneTemp(listOf("cpu", "cpuss", "soc", "mtktscpu"))
-                          "GPU" -> zoneTemp(listOf("gpu", "gpuss"))
+                          "CPU" -> cpuT
+                          "GPU" -> gpuT
                           else -> "--"
                       }
                   }
               }
 
               override fun onDestroy() {
-                  h.removeCallbacks(tick)
-                  panel?.let { wm.removeView(it) }
+                  running = false
+                  prefs.unregisterOnSharedPreferenceChangeListener(listener)
+                  panel?.let {
+                      try { wm.removeView(it) } catch (e: Exception) { }
+                  }
+                  panel = null
                   super.onDestroy()
               }
           }
