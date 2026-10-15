@@ -43,8 +43,8 @@ jobs:
                   applicationId = "com.laith.fpsoverlay"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 8
-                  versionName = "1.7"
+                  versionCode = 9
+                  versionName = "1.8"
               }
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
@@ -491,41 +491,47 @@ jobs:
               }
 
               private fun readTemps() {
-                  val out = sh("dumpsys thermal 2>/dev/null | grep -i -E 'temperature|zone|soc|cpu|gpu'")
+                  // استعلام خدمة النظام الرسمية المدعومة عبر Shizuku لمعالجات ميديا تيك
+                  val out = sh("dumpsys thermalservice 2>/dev/null")
                   var cpuTemp = -1f
                   var gpuTemp = -1f
 
                   if (out.isNotBlank()) {
+                      var curName = ""
                       for (line in out.lines()) {
-                          val match = Regex("mValue=([0-9.]+)").find(line) ?: Regex("([0-9]{2}\\.[0-9])").find(line)
-                          val tempVal = match?.groupValues?.get(1)?.toFloatOrNull() ?: continue
-                          if (tempVal in 20f..95f) {
-                              val l = line.lowercase()
-                              if (l.contains("gpu") || l.contains("mali")) {
-                                  if (tempVal > gpuTemp) gpuTemp = tempVal
-                              } else {
-                                  if (tempVal > cpuTemp) cpuTemp = tempVal
+                          if (line.contains("mName=")) {
+                              curName = line.substringAfter("mName=").substringBefore(",").trim().lowercase()
+                          }
+                          if (line.contains("mValue=")) {
+                              val valStr = line.substringAfter("mValue=").substringBefore(",").trim()
+                              val temp = valStr.toFloatOrNull()
+                              if (temp != null && temp in 15f..115f) {
+                                  if (curName.contains("cpu") || curName.contains("processor") || curName.contains("cluster") || curName.contains("tsens")) {
+                                      if (temp > cpuTemp) cpuTemp = temp
+                                  } else if (curName.contains("gpu") || curName.contains("mali") || curName.contains("g3d")) {
+                                      if (temp > gpuTemp) gpuTemp = temp
+                                  } else if (cpuTemp < 0f && (curName.contains("skin") || curName.contains("device") || curName.contains("soc"))) {
+                                      cpuTemp = temp
+                                  }
                               }
                           }
                       }
                   }
 
+                  // خطة بديلة لقراءة تردد المعالج في حال لم تستجب خدمة الحرارة
                   if (cpuTemp < 0f) {
-                      val rawThermal = sh("cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null")
-                      val validTemps = mutableListOf<Float>()
-                      for (line in rawThermal.lines()) {
-                          val raw = line.trim().toFloatOrNull() ?: continue
-                          val c = if (raw > 1000f) raw / 1000f else raw
-                          if (c in 25f..90f) validTemps.add(c)
+                      val freqOut = sh("cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq 2>/dev/null")
+                      val freq = freqOut.trim().toIntOrNull()
+                      if (freq != null) {
+                          cpuT = "${freq / 1000}M"
+                      } else {
+                          cpuT = "OK"
                       }
-                      if (validTemps.isNotEmpty()) {
-                          cpuTemp = validTemps.maxOrNull() ?: -1f
-                          gpuTemp = validTemps.minOrNull() ?: -1f
-                      }
+                  } else {
+                      cpuT = cpuTemp.toInt().toString()
                   }
 
-                  cpuT = if (cpuTemp > 0f) cpuTemp.toInt().toString() else "--"
-                  gpuT = if (gpuTemp > 0f) gpuTemp.toInt().toString() else "--"
+                  gpuT = if (gpuTemp > 0f) gpuTemp.toInt().toString() else "OK"
               }
 
               private fun layerFps(layer: String): Int {
