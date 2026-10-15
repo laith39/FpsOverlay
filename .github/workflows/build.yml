@@ -43,8 +43,8 @@ jobs:
                   applicationId = "com.laith.fpsoverlay"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 6
-                  versionName = "1.5"
+                  versionCode = 7
+                  versionName = "1.6"
               }
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
@@ -167,7 +167,7 @@ jobs:
                       stopService(Intent(this@MainActivity, OverlayService::class.java))
                       Toast.makeText(this, "تم إيقاف الخدمة", Toast.LENGTH_SHORT).show()
                   }
-                  val btnShizuku = createStyledButton("منح إذن Shizuku / فحص الروت", "#1E293B", Color.parseColor("#38BDF8")) { askShizuku() }
+                  val btnShizuku = createStyledButton("منح إذن Shizuku", "#1E293B", Color.parseColor("#38BDF8")) { askShizuku() }
 
                   root.addView(btnStart)
                   root.addView(View(this), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 16))
@@ -272,33 +272,22 @@ jobs:
 
               private fun refreshStatus() {
                   statusText.text = try {
-                      val hasRoot = Runtime.getRuntime().exec(arrayOf("su", "-c", "id")).waitFor() == 0
-                      if (hasRoot) "الحالة: متصل عبر صلاحيات الروت (Root) ✅"
-                      else if (Shizuku.pingBinder() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED)
+                      if (Shizuku.pingBinder() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED)
                           "الحالة: يعمل عبر Shizuku ✅"
-                      else "الحالة: يرجى منح إذن Shizuku أو الروت ⚠️"
+                      else "الحالة: اضغط زر (منح إذن Shizuku) ⚠️"
                   } catch (e: Throwable) {
-                      "الحالة: تعذّر التحقق من الصلاحيات"
+                      "الحالة: يرجى تشغيل تطبيق Shizuku أولاً"
                   }
               }
 
               private fun askShizuku() {
-                  try {
-                      val rootProcess = Runtime.getRuntime().exec(arrayOf("su", "-c", "id"))
-                      if (rootProcess.waitFor() == 0) {
-                          Toast.makeText(this, "تم اكتشاف صلاحيات الروت بنجاح!", Toast.LENGTH_SHORT).show()
-                          refreshStatus()
-                          return
-                      }
-                  } catch (e: Throwable) {}
-
                   try {
                       if (!Shizuku.pingBinder()) {
                           Toast.makeText(this, "شغّل تطبيق Shizuku أولاً", Toast.LENGTH_LONG).show()
                       } else if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
                           Shizuku.requestPermission(100)
                       } else {
-                          Toast.makeText(this, "إذن Shizuku ممنوح مسبقاً", Toast.LENGTH_SHORT).show()
+                          Toast.makeText(this, "إذن Shizuku ممنوح مسبقاً ✅", Toast.LENGTH_SHORT).show()
                       }
                   } catch (e: Throwable) {
                       Toast.makeText(this, "خطأ في الاتصال بـ Shizuku", Toast.LENGTH_LONG).show()
@@ -491,13 +480,6 @@ jobs:
 
               private fun sh(cmd: String): String {
                   try {
-                      val pr = Runtime.getRuntime().exec(arrayOf("su", "-c", cmd))
-                      val out = pr.inputStream.bufferedReader().readText()
-                      pr.waitFor()
-                      if (out.isNotBlank()) return out
-                  } catch (e: Throwable) {}
-
-                  try {
                       if (Shizuku.pingBinder() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
                           val pr = Shizuku.newProcess(arrayOf("sh", "-c", cmd), null, null)
                           val out = pr.inputStream.bufferedReader().readText()
@@ -509,36 +491,43 @@ jobs:
               }
 
               private fun readTemps() {
-                  val out = sh("grep . /sys/class/thermal/thermal_zone*/type /sys/class/thermal/thermal_zone*/temp 2>/dev/null")
-                  val types = HashMap<String, String>()
-                  val temps = HashMap<String, Float>()
-                  for (line in out.lines()) {
-                      val idx = line.indexOf(':')
-                      if (idx < 0) continue
-                      val path = line.substring(0, idx)
-                      val content = line.substring(idx + 1).trim()
-                      val zone = path.substringAfterLast("thermal_zone").substringBefore("/")
-                      if (path.endsWith("/type")) {
-                          types[zone] = content.lowercase()
-                      } else if (path.endsWith("/temp")) {
-                          val raw = content.toFloatOrNull() ?: continue
+                  // طريقة متوافقة خصيصاً مع معالجات ميديا تيك والهواتف غير المتروتة
+                  val out = sh("dumpsys thermal 2>/dev/null | grep -i -E 'temperature|zone|soc|cpu|gpu'")
+                  var cpuTemp = -1f
+                  var gpuTemp = -1f
+
+                  if (out.isNotBlank()) {
+                      for (line in out.lines()) {
+                          val match = Regex("mValue=([0-9.]+)").find(line) ?: Regex("([0-9]{2}\\.[0-9])").find(line)
+                          val tempVal = match?.groupValues?.get(1)?.toFloatOrNull() ?: continue
+                          if (tempVal in 20f..95f) {
+                              val l = line.lowercase()
+                              if (l.contains("gpu") || l.contains("mali")) {
+                                  if (tempVal > gpuTemp) gpuTemp = tempVal
+                              } else {
+                                  if (tempVal > cpuTemp) cpuTemp = tempVal
+                              }
+                          }
+                      }
+                  }
+
+                  // خطة بديلة في حال حظر dumpsys thermal: القراءة المباشرة لجميع المستشعرات
+                  if (cpuTemp < 0f) {
+                      val rawThermal = sh("cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null")
+                      val validTemps = mutableListOf<Float>()
+                      for (line in rawThermal.lines()) {
+                          val raw = line.trim().toFloatOrNull() ?: continue
                           val c = if (raw > 1000f) raw / 1000f else raw
-                          if (c in 1f..150f) temps[zone] = c
+                          if (c in 25f..90f) validTemps.add(c)
+                      }
+                      if (validTemps.isNotEmpty()) {
+                          cpuTemp = validTemps.maxOrNull() ?: --1f
+                          gpuTemp = validTemps.minOrNull() ?: --1f
                       }
                   }
-                  var cpu = -1f; var gpu = -1f; var generalMax = -1f
-                  for ((zone, type) in types) {
-                      val t = temps[zone] ?: continue
-                      if (t > generalMax) generalMax = t
-                      if (type.contains("gpu") || type.contains("g3d") || type.contains("mali") || type.contains("adreno")) {
-                          if (t > gpu) gpu = t
-                      } else if (type.contains("cpu") || type.contains("core") || type.contains("cluster") || type.contains("soc") || type.contains("mtk") || type.contains("tsens")) {
-                          if (t > cpu) cpu = t
-                      }
-                  }
-                  if (cpu < 0f) cpu = generalMax
-                  cpuT = if (cpu > 0f) cpu.toInt().toString() else "--"
-                  gpuT = if (gpu > 0f) gpu.toInt().toString() else "--"
+
+                  cpuT = if (cpuTemp > 0f) cpuTemp.toInt().toString() else "--"
+                  gpuT = if (gpuTemp > 0f) gpuTemp.toInt().toString() else "--"
               }
 
               private fun layerFps(layer: String): Int {
