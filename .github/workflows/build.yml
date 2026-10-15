@@ -43,8 +43,8 @@ jobs:
                   applicationId = "com.laith.fpsoverlay"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 7
-                  versionName = "1.6"
+                  versionCode = 8
+                  versionName = "1.7"
               }
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
@@ -491,7 +491,6 @@ jobs:
               }
 
               private fun readTemps() {
-                  // طريقة متوافقة خصيصاً مع معالجات ميديا تيك والهواتف غير المتروتة
                   val out = sh("dumpsys thermal 2>/dev/null | grep -i -E 'temperature|zone|soc|cpu|gpu'")
                   var cpuTemp = -1f
                   var gpuTemp = -1f
@@ -511,7 +510,6 @@ jobs:
                       }
                   }
 
-                  // خطة بديلة في حال حظر dumpsys thermal: القراءة المباشرة لجميع المستشعرات
                   if (cpuTemp < 0f) {
                       val rawThermal = sh("cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null")
                       val validTemps = mutableListOf<Float>()
@@ -521,8 +519,8 @@ jobs:
                           if (c in 25f..90f) validTemps.add(c)
                       }
                       if (validTemps.isNotEmpty()) {
-                          cpuTemp = validTemps.maxOrNull() ?: --1f
-                          gpuTemp = validTemps.minOrNull() ?: --1f
+                          cpuTemp = validTemps.maxOrNull() ?: -1f
+                          gpuTemp = validTemps.minOrNull() ?: -1f
                       }
                   }
 
